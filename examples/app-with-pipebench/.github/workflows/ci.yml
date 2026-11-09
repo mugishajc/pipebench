@@ -1,0 +1,43 @@
+# Example consumer workflow. Shows how a downstream repo uses pipebench's
+# composite actions. The three jobs are typical for a small web service.
+name: ci
+on:
+  push: { branches: [main] }
+  pull_request:
+
+permissions:
+  contents: read
+  id-token: write # needed for OIDC (cosign and AWS)
+  packages: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mugishajc/pipebench/test-matrix@v1
+        with:
+          language: go
+          coverage-floor: "70"
+
+  image:
+    needs: test
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mugishajc/pipebench/docker-build-push@v1
+        with:
+          image: ghcr.io/${{ github.repository_owner }}/example
+          registry-password: ${{ secrets.GITHUB_TOKEN }}
+          sign: "true"
+
+  infra:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mugishajc/pipebench/terraform-plan-apply@v1
+        with:
+          working-directory: infra/envs/dev
+          aws-region: eu-west-1
+          aws-role-to-assume: arn:aws:iam::111122223333:role/github-actions-deploy
