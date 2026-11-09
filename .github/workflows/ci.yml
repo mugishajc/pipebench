@@ -1,0 +1,35 @@
+name: ci
+on:
+  push: { branches: [main] }
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: actionlint
+        run: |
+          curl -sSLf https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash | bash
+          ./actionlint -color
+      - name: shellcheck shell runs in composite actions
+        run: |
+          sudo apt-get update && sudo apt-get install -y shellcheck
+          # Extract every `run: |` under `shell: bash` and lint it.
+          python3 - <<'PY'
+          import re, pathlib, subprocess, sys, tempfile
+          failed = False
+          for p in pathlib.Path(".").rglob("action.yml"):
+              text = p.read_text()
+              for m in re.finditer(r"shell:\s*bash\s*\n(?:\s*working-directory:[^\n]*\n)?\s*run:\s*\|\n((?:[ \t]+.*\n)+)", text):
+                  block = m.group(1)
+                  tmp = tempfile.NamedTemporaryFile("w", suffix=".sh", delete=False)
+                  tmp.write("#!/usr/bin/env bash\nset -euo pipefail\n" + block)
+                  tmp.close()
+                  r = subprocess.run(["shellcheck", "-x", tmp.name], capture_output=True, text=True)
+                  if r.returncode != 0:
+                      print(f"::error file={p}::shellcheck failed")
+                      print(r.stdout)
+                      failed = True
+          sys.exit(1 if failed else 0)
+          PY
